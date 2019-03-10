@@ -6,6 +6,7 @@ MYDOT_COMPLETE="\
     push\
     remove\
     status\
+	list\
     --path\
     --loglevel\
     --help"
