@@ -9,9 +9,11 @@ from powerline.segments import Segment, with_docstring
 
 @requires_segment_info
 def status(pl, segment_info):
-    command = "mydot status --silent"
+    command = "git status --short"
     result = subprocess.run(command.split())
     if result.returncode:
-        return [{'contents': 'MyDot', 'highlight_groups': ['exit_fail']}]
+        return [{'contents': 'MyDot:error', 'highlight_groups': ['exit_fail']}]
     else:
+        if result.stdout:
+            return [{'contents': 'MyDot', 'highlight_groups': ['exit_fail']}]
         return None
