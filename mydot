@@ -1,0 +1,4 @@
+#!/bin/bash
+# Change the path to reflect where your sps python virtual environment is installed
+
+"$HOME/MyDot/venv/bin/python" "$HOME/MyDot/mydot.py" "$@"

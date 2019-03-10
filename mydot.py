@@ -23,42 +23,11 @@ class MyDot(object):
     uid = None
 
 
-    _config_filename="config.yaml"
 
     def __init__(self, path):
         self.path = Path(path)
         self.uid = socket.gethostname()
 
-    def repostatus(self):
-        behind = self.repo.iter_commits('master..origin/master')
-        ahead = self.repo.iter_commits('origin/master..master')
-        num_behind=sum(1 for c in behind)
-        num_ahead=sum(1 for c in ahead)
-        if num_behind:
-            return '{} commits behind origin'.format(num_behind)
-        elif num_ahead:
-            return '{} commits ahead origin'.format(num_ahead)
-        return 'in sync with origin'
-
-    def load_config(self):
-        config_file = self.path / self._config_filename
-        logger.debug('Loading config: {}'.format(config_file.as_posix()))
-        if not config_file.exists():
-            logger.debug('Creating new config file')
-            config = {
-                    'host': [ self.uid ]
-                    }
-            with config_file.open('w') as outfile:
-                yaml.dump(config, outfile, default_flow_style=False)
-            self.add(config_file.as_posix(), 'Added new config file')
-
-    def behind(self):
-        commits_behind = self.repo.iter_commits('master..origin/master')
-        return sum(1 for c in commits_behind)
-
-    def ahead(self):
-        commits_ahead = repo.iter_commits('origin/master..master')
-        return sum(1 for c in commits_ahead)
 
 
 class ColorLogFormater(logging.Formatter):
@@ -99,7 +68,7 @@ def format_logger(loglevel, nocolor=False):
 
 
 @click.group()
-@click.option('--path', type=click.Path(), default="{}/.dotfiles".format(Path.home()), help="set root of dotdir git folder [default = ~/.mydot]")
+@click.option('--path', type=click.Path(), default="{}/.dotfiles".format(Path.home()), help="set root of dotdir git folder [default = ~/.dotfiles]")
 @click.option('--loglevel', type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "NOTSET"]), default="WARNING", help="Set the logging level")
 @click.pass_context
 def main(ctx, path, loglevel):
@@ -121,34 +90,48 @@ def main(ctx, path, loglevel):
                 sys.exit(1)
             logger.critical('{} is not a directory'.format(dotdir.path.as_posix()))
             sys.exit(1)
-    dotdir.load_config()
-    #ctx.obj['DOTDIR'] = dotdir
 
 @main.command()
+@click.option('--silent', is_flag=True, help="no output, exit code 0 if in sync")
 @click.pass_context
-def status(ctx):
+def status(ctx, silent):
     """ Invoke git repo commands..."""
     global dotdir
+    if silent:
+        if dotdir.repo.is_dirty():
+            sys.exit(1)
+        if dotdir.repo.untracked_files:
+            sys.exit(1)
+        if dotdir.repo.index.diff("HEAD"):
+            sys.exit(1)
+#        ahead = dotdir.repo.iter_commits('origin/master..master')
+#        if sum(1 for c in ahead):
+#            sys.exit(1)
+#        behind = dotdir.repo.iter_commits('master..origin/master')
+#        if sum(1 for c in behind):
+#            sys.exit(1)
+        sys.exit(0)
     print('Repo description: {}'.format(dotdir.repo.description))
     print('Last commit for repo is {}.'.format(str(dotdir.repo.head.commit.hexsha)))
     commits_behind = dotdir.repo.iter_commits('master..origin/master')
     commits_ahead = dotdir.repo.iter_commits('origin/master..master')
-    print(sum(1 for c in commits_behind))
-    print(sum(1 for c in commits_ahead))
     for remote in dotdir.repo.remotes:
         print('    Remote named "{}" with URL "{}"'.format(remote, remote.url))
+
+    if sum(1 for c in commits_ahead):
+        commits_ahead = dotdir.repo.iter_commits('origin/master..master')
+        print('\n{}{}Commits ahead{}:'.format(colorama.Style.BRIGHT, colorama.Fore.YELLOW, colorama.Style.RESET_ALL))
+        for commit in commits_ahead:
+            print('  * {} : {}'.format(str(commit.authored_datetime), commit.summary))
     if dotdir.repo.is_dirty():
         print('\n{}{}Changed files{}:'.format(colorama.Style.BRIGHT, colorama.Fore.YELLOW, colorama.Style.RESET_ALL))
         for item in dotdir.repo.index.diff(None):
             print('  * {}'.format(item.a_path))
-        #TODO: List all deleted files
+
     if dotdir.repo.untracked_files:
         print('\n{}{}Untracked files{}:'.format(colorama.Style.BRIGHT, colorama.Fore.YELLOW, colorama.Style.RESET_ALL))
         for f in dotdir.repo.untracked_files:
             print('  * {}'.format(f))
-
-    if not dotdir.repo.is_dirty() and not dotdir.untracked_files:
-        print('\n{}{}Status OK!{}'.format(colorama.Style.BRIGHT, colorama.Fore.GREEN, colorama.Style.RESET_ALL))
 
 @main.command()
 @click.argument('fname')
@@ -192,15 +175,48 @@ def remove(ctx, fname):
     else:
         logger.debug('{} is commited, removing file'.format(gitfile))
         dotdir.repo.index.remove([gitfile],working_tree = True)
+        dotdir.repo.index.commit('mydot: removed {}'.format(gitfile))
 
 
+@main.command()
+@click.option('--message', default=None, help='Commit message')
+@click.pass_context
+def commit(ctx, message):
+    """Commit changed files"""
+    global dotdir
+    if not dotdir.repo.is_dirty():
+        logger.info('Nothing to commit')
+        return
+    for item in dotdir.repo.index.diff(None):
+        logger.info('Adding: {}'.format(item.a_path))
+    if message == None:
+        message=input('Commit message: ')
+    for item in dotdir.repo.index.diff(None):
+        dotdir.repo.index.add([item.a_path])
+    dotdir.repo.index.commit(message)
+
+@main.command()
+@click.pass_context
+def push(ctx):
+    """Push remotes"""
+    global dotdir
+    logger.debug('Pushing to remotes')
+    dotdir.repo.remotes.origin.push('master')
+
+@main.command()
+@click.pass_context
+def pull(ctx):
+    """Pull remotes"""
+    global dotdir
+    logger.debug('Pulling from remotes')
+    dotdir.repo.remotes.origin.pull('master')
 
 @main.command()
 @click.argument('url')
 @click.pass_context
 def init(ctx, url):
     """Init a local repository with URL as remotei origin"""
-    #dotdir = ctx.obj['DOTDIR']
+    global dotdir
     if dotdir.path.exists():
         logger.critical('Can not init local repo when {} already exists'.format(dotdir.path.as_posix()))
         sys.exit(1)
@@ -212,7 +228,6 @@ def init(ctx, url):
     origin.fetch()
     logger.info('Remote pull')
     origin.pull(origin.refs[0].remote_head)
-    dotdir.load_config()
 
 
 @main.command()
@@ -254,6 +269,11 @@ def add(ctx, source):
     os.rename(source, destfile)
     logger.debug('Creating symlink')
     os.symlink(destfile, source)
+    logger.debug('Commiting file in repo')
+    gitfile=destfile.replace(dotdir.path.as_posix()+'/', '')
+    dotdir.repo.index.add([gitfile])
+    dotdir.repo.index.commit('mydot: adding {}'.format(gitfile))
+
 
 if __name__ == "__main__":
     sys.argv[0] = "mydot"
