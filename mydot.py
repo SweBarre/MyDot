@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import os
 import sys
-import yaml
 import click
 import logging
 import colorama
