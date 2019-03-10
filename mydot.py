@@ -8,6 +8,7 @@ import copy
 import git
 import socket
 import shutil
+from prettytable import PrettyTable
 from pathlib import Path
 
 LOGGING_STRING = "[%(levelname)s] %(message)s"
@@ -260,6 +261,36 @@ def init(ctx, url):
     origin.fetch()
     logger.info("Remote pull")
     origin.pull(origin.refs[0].remote_head)
+
+
+@main.command()
+@click.pass_context
+def list(ctx):
+    """List files managed by MyDot"""
+    global dotdir
+    startdir = '{}/{}'.format(dotdir.path, dotdir.uid)
+    table = PrettyTable()
+    table.field_names = ['Status', 'File']
+    for name in table.field_names:
+        table.align[name] = "l"
+    for root, dirs, files in os.walk(startdir, topdown=True):
+        for fname in files:
+            gitfile = os.path.join(root, fname)
+            shortname = gitfile.replace(startdir, '')
+            homename = '{}{}'.format(Path.home(), shortname)
+            if os.path.exists(homename):
+                if Path(homename).is_symlink():
+                    if os.readlink(homename) == gitfile:
+                        status='{}{}ok{}'.format(colorama.Style.BRIGHT, colorama.Fore.GREEN, colorama.Style.RESET_ALL)
+                    else:
+                        status='{}{}Linking to wrong file{}'.format(colorama.Style.BRIGHT, colorama.Fore.RED, colorama.Style.RESET_ALL)
+                else:
+                    status='{}{}Not a link{}'.format(colorama.Style.BRIGHT, colorama.Fore.RED, colorama.Style.RESET_ALL)
+            else:
+                status='{}{}Missing{}'.format(colorama.Style.BRIGHT, colorama.Fore.YELLOW, colorama.Style.RESET_ALL)
+            table.add_row([status, shortname])
+    print(table)
+        
 
 
 @main.command()
