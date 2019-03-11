@@ -25,5 +25,5 @@ def status(pl, segment_info):
         if result.returncode:
             return [{'contents': 'MyDot:error', 'highlight_groups': ['exit_fail']}]
         elif result.stdout:
-            return [{'contents': 'MyDot', 'highlight_groups': ['exit_fail']}]
+            return [{'contents': 'MyDot', 'highlight_groups': ['exit_success']}]
         return None
