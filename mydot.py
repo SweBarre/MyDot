@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 dotdir = None
 
 
+class Status():
+    OK = 1
+    LINK_MISSING = 2
+    TARGET_NOT_LINK = 3
+    TARGET_LINK_TO_WRONG = 4
+
+
 class MyDot(object):
     path = None
     repo = None
@@ -26,6 +33,37 @@ class MyDot(object):
     def __init__(self, path):
         self.path = Path(path)
         self.uid = socket.gethostname()
+
+    def files(self, uid=None):
+        """ Returns a list of dict of managed files
+        [
+          {
+            'status': 
+            'file':
+          }
+        ]
+        """
+        if uid == None:
+            uid = self.uid
+        return_list = []
+        startdir = "{}/{}".format(self.path, uid)
+        for root, dirs, files in os.walk(startdir, topdown=True):
+            for fname in files:
+                gitfile = os.path.join(root, fname)
+                shortname = gitfile.replace(startdir, "")
+                homename = "{}{}".format(Path.home(), shortname)
+                if os.path.exists(homename):
+                    if Path(homename).is_symlink():
+                        if os.readlink(homename) == gitfile:
+                            status = Status.OK
+                        else:
+                            status = Status.TARGET_LINK_TO_WRONG
+                    else:
+                        status = Status.TARGET_NOT_LINK
+                else:
+                    status = Status.LINK_MISSING
+                return_list.append({"status": status, "file": shortname})
+        return return_list
 
 
 class ColorLogFormater(logging.Formatter):
@@ -76,7 +114,7 @@ def format_logger(loglevel, nocolor=False):
 @click.option(
     "--loglevel",
     type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "NOTSET"]),
-    default="WARNING",
+    default="INFO",
     help="Set the logging level",
 )
 @click.pass_context
@@ -152,6 +190,7 @@ def status(ctx, silent):
         )
         for f in dotdir.repo.untracked_files:
             print("  * {}".format(f))
+    ctx.invoke(list)
 
 
 @main.command()
@@ -268,29 +307,50 @@ def init(ctx, url):
 def list(ctx):
     """List files managed by MyDot"""
     global dotdir
-    startdir = '{}/{}'.format(dotdir.path, dotdir.uid)
+    # startdir = '{}/{}'.format(dotdir.path, dotdir.uid)
     table = PrettyTable()
-    table.field_names = ['Status', 'File']
+    table.field_names = ["Status", "File"]
     for name in table.field_names:
         table.align[name] = "l"
-    for root, dirs, files in os.walk(startdir, topdown=True):
-        for fname in files:
-            gitfile = os.path.join(root, fname)
-            shortname = gitfile.replace(startdir, '')
-            homename = '{}{}'.format(Path.home(), shortname)
-            if os.path.exists(homename):
-                if Path(homename).is_symlink():
-                    if os.readlink(homename) == gitfile:
-                        status='{}{}ok{}'.format(colorama.Style.BRIGHT, colorama.Fore.GREEN, colorama.Style.RESET_ALL)
-                    else:
-                        status='{}{}Linking to wrong file{}'.format(colorama.Style.BRIGHT, colorama.Fore.RED, colorama.Style.RESET_ALL)
-                else:
-                    status='{}{}Not a link{}'.format(colorama.Style.BRIGHT, colorama.Fore.RED, colorama.Style.RESET_ALL)
-            else:
-                status='{}{}Missing{}'.format(colorama.Style.BRIGHT, colorama.Fore.YELLOW, colorama.Style.RESET_ALL)
-            table.add_row([status, shortname])
+    for f in dotdir.files():
+        status = ""
+        if f["status"] == Status.OK:
+            status = "{}{}ok{}".format(
+                colorama.Style.BRIGHT, colorama.Fore.GREEN, colorama.Style.RESET_ALL
+            )
+        elif f["status"] == Status.LINK_MISSING:
+            status = "{}{}Missing{}".format(
+                colorama.Style.BRIGHT, colorama.Fore.YELLOW, colorama.Style.RESET_ALL
+            )
+        elif f["status"] == Status.TARGET_NOT_LINK:
+            status = "{}{}Not a link{}".format(
+                colorama.Style.BRIGHT, colorama.Fore.RED, colorama.Style.RESET_ALL
+            )
+        elif f["status"] == Status.TARGET_LINK_TO_WRONG:
+            status = "{}{}Linking to wrong file{}".format(
+                colorama.Style.BRIGHT, colorama.Fore.RED, colorama.Style.RESET_ALL
+            )
+        table.add_row([status, f["file"]])
     print(table)
-        
+
+@main.command()
+@click.pass_context
+def sync(ctx):
+    global dotdir
+    for f in dotdir.files():
+        if f['status'] == Status.OK:
+            logger.info('{} is ok'.format(f['file']))
+        elif f['status'] == Status.LINK_MISSING:
+            logger.info('Linking missing link {}'.format(f['file']))
+            sfile = '{}/{}{}'.format(dotdir.path, dotdir.uid, f['file'])
+            dfile = '{}{}'.format(Path.home(),f['file'])
+            os.symlink(sfile, dfile)
+        elif f['status'] == Status.TARGET_NOT_LINK:
+            logger.error('{}{} exists and not a link, resolv manually'.format(Path.home(), f['file']))
+        elif f['status'] == Status.TARGET_LINK_TO_WRONG:
+            lfile = os.readlink(Path.home().as_posix()+f['file'])
+            logger.error('{}{} is linking to {}, resolve manually'.format(Path.home(), f['file'], lfile))
+
 
 
 @main.command()
