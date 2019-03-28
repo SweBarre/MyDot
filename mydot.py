@@ -344,6 +344,8 @@ def sync(ctx):
             logger.info('Linking missing link {}'.format(f['file']))
             sfile = '{}/{}{}'.format(dotdir.path, dotdir.uid, f['file'])
             dfile = '{}{}'.format(Path.home(),f['file'])
+            if not os.path.isdir(os.path.dirname(dfile)):
+                os.makedirs(os.path.dirname(dfile))
             os.symlink(sfile, dfile)
         elif f['status'] == Status.TARGET_NOT_LINK:
             logger.error('{}{} exists and not a link, resolv manually'.format(Path.home(), f['file']))
